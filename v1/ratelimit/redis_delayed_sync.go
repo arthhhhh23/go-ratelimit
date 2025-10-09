@@ -78,20 +78,24 @@ func NewRedisDelayedSync(ctx context.Context, opt RedisDelayedSyncOption) *Redis
 		}
 	}
 	if !opt.DisableAutoSync {
-		rl.StartAutoSyncLoop()
+		rl.StartAutoSyncLoop(ctx)
 	}
 	return rl
 }
 
-func (r *RedisDelayedSync) StartAutoSyncLoop() {
+func (r *RedisDelayedSync) StartAutoSyncLoop(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(r.syncInterval)
 		for {
 			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return
 			case <-r.ctx.Done():
 				ticker.Stop()
 				return
 			case <-ticker.C:
+				now := time.Now()
 				// Avoid overlapping calls to this function
 				// We want syncAll to be called at most once at any given time thus we are not using a goroutine here
 				if err := r.syncAll(); err != nil {
@@ -127,6 +131,7 @@ func (r *RedisDelayedSync) syncAll() error {
 	if r.keyExpiry > 0 {
 		expiry = time.Now().Add(-r.keyExpiry).UnixNano()
 	}
+
 	// Consider using a different approach to prioritize syncing the keys that are used more frequently
 	r.lastSyncedResetAt.Range(func(key, value any) bool {
 		keyAsString := key.(string)
